@@ -1,0 +1,15 @@
+---
+docker_version: "28.5.1"
+docker_install_latest_when_version_unavailable: true
+
+docker_data_root: "/data/docker"
+
+containerd_root: "/data/containerd"
+containerd_state: "/run/containerd"
+
+docker_repo_channel: "stable"
+
+docker_log_max_size: "100m"
+docker_log_max_file: "3"
+
+docker_restart_policy: "unless-stopped"

@@ -1,0 +1,81 @@
+---
+- name: Remove conflicting Docker packages
+  ansible.builtin.dnf:
+    name:
+      - docker
+      - docker-client
+      - docker-client-latest
+      - docker-common
+      - docker-latest
+      - docker-latest-logrotate
+      - docker-logrotate
+      - docker-engine
+      - podman
+      - runc
+    state: absent
+
+- name: Install DNF repository management package
+  ansible.builtin.dnf:
+    name: dnf-plugins-core
+    state: present
+
+- name: Determine Docker RPM repository distribution
+  ansible.builtin.set_fact:
+    docker_rpm_repo_os: "{{ 'rhel' if ansible_distribution == 'RedHat' else 'centos' }}"
+
+- name: Configure Docker repository
+  ansible.builtin.yum_repository:
+    name: docker-ce-stable
+    description: Docker CE Stable - $basearch
+    baseurl: "https://download.docker.com/linux/{{ docker_rpm_repo_os }}/$releasever/$basearch/{{ docker_repo_channel }}"
+    enabled: true
+    gpgcheck: true
+    gpgkey: "https://download.docker.com/linux/{{ docker_rpm_repo_os }}/gpg"
+
+- name: Refresh DNF repository metadata
+  ansible.builtin.dnf:
+    update_cache: true
+
+- name: Find requested Docker version
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    dnf list docker-ce --showduplicates --quiet |
+    awk '$1 ~ /^docker-ce\./ {print $2}' |
+    grep -F '{{ docker_version }}' |
+    head -n 1
+  args:
+    executable: /bin/bash
+  register: docker_rpm_requested_version
+  changed_when: false
+  failed_when: false
+
+- name: Fail when requested Docker version is unavailable
+  ansible.builtin.fail:
+    msg: "Docker version {{ docker_version }} is not available."
+  when:
+    - docker_rpm_requested_version.stdout | length == 0
+    - not docker_install_latest_when_version_unavailable | bool
+
+- name: Install requested Docker version
+  ansible.builtin.dnf:
+    name:
+      - "docker-ce-{{ docker_rpm_requested_version.stdout }}"
+      - "docker-ce-cli-{{ docker_rpm_requested_version.stdout }}"
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  when: docker_rpm_requested_version.stdout | length > 0
+
+- name: Install latest Docker when requested version is unavailable
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  when:
+    - docker_rpm_requested_version.stdout | length == 0
+    - docker_install_latest_when_version_unavailable | bool

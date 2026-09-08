@@ -1,0 +1,59 @@
+---
+- name: Create containerd configuration directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create containerd root directory
+  ansible.builtin.file:
+    path: "{{ containerd_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0711"
+
+- name: Check containerd configuration file
+  ansible.builtin.stat:
+    path: /etc/containerd/config.toml
+  register: containerd_config
+
+- name: Generate default containerd configuration
+  ansible.builtin.command: containerd config default
+  register: containerd_default_config
+  changed_when: false
+  when: not containerd_config.stat.exists
+
+- name: Create default containerd configuration file
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    content: "{{ containerd_default_config.stdout }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not containerd_config.stat.exists
+  notify:
+    - Restart containerd
+    - Restart Docker
+
+- name: Configure containerd root directory
+  ansible.builtin.lineinfile:
+    path: /etc/containerd/config.toml
+    regexp: '^root\s*='
+    line: 'root = "{{ containerd_root }}"'
+    insertbefore: '^\['
+  notify:
+    - Restart containerd
+    - Restart Docker
+
+- name: Configure containerd state directory
+  ansible.builtin.lineinfile:
+    path: /etc/containerd/config.toml
+    regexp: '^state\s*='
+    line: 'state = "{{ containerd_state }}"'
+    insertbefore: '^\['
+  notify:
+    - Restart containerd
+    - Restart Docker

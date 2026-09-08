@@ -1,0 +1,33 @@
+---
+- name: Create Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Docker data-root directory
+  ansible.builtin.file:
+    path: "{{ docker_data_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0711"
+
+- name: Configure Docker daemon data-root
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {
+        "data-root": "{{ docker_data_root }}",
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "{{ docker_log_max_size }}",
+          "max-file": "{{ docker_log_max_file }}"
+        }
+      }
+  notify: Restart Docker

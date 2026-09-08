@@ -1,0 +1,101 @@
+---
+- name: Create Nginx configuration directory
+  ansible.builtin.file:
+    path: /data/nginx/conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: application_role == "web"
+
+- name: Deploy Nginx reverse proxy configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /data/nginx/conf.d/default.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: application_role == "web"
+  notify: Deploy WEB container
+
+- name: Create FastAPI build directory
+  ansible.builtin.file:
+    path: "{{ app_build_dir }}/app"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: application_role == "app"
+
+- name: Deploy FastAPI application source
+  ansible.builtin.template:
+    src: main.py.j2
+    dest: "{{ app_build_dir }}/app/main.py"
+    owner: root
+    group: root
+    mode: "0644"
+  when: application_role == "app"
+  notify: Build FastAPI Docker image
+
+- name: Deploy FastAPI requirements
+  ansible.builtin.template:
+    src: requirements.txt.j2
+    dest: "{{ app_build_dir }}/requirements.txt"
+    owner: root
+    group: root
+    mode: "0644"
+  when: application_role == "app"
+  notify: Build FastAPI Docker image
+
+- name: Deploy FastAPI Dockerfile
+  ansible.builtin.template:
+    src: Dockerfile.j2
+    dest: "{{ app_build_dir }}/Dockerfile"
+    owner: root
+    group: root
+    mode: "0644"
+  when: application_role == "app"
+  notify: Build FastAPI Docker image
+
+- name: Deploy WEB Docker run script
+  ansible.builtin.template:
+    src: docker-run.sh.j2
+    dest: "/usr/local/bin/docker-run-{{ docker_container_name }}.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  when: application_role == "web"
+  notify: Deploy WEB container
+
+- name: Deploy APP Docker run script
+  ansible.builtin.template:
+    src: docker-run.sh.j2
+    dest: "/usr/local/bin/docker-run-{{ docker_container_name }}.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  when: application_role == "app"
+  notify: Build FastAPI Docker image
+
+- name: Check application container
+  ansible.builtin.command:
+    cmd: "docker container inspect {{ docker_container_name }}"
+  register: application_container_check
+  changed_when: false
+  failed_when: false
+
+- name: Trigger WEB deployment when container does not exist
+  ansible.builtin.command: /bin/true
+  changed_when: true
+  when:
+    - application_role == "web"
+    - application_container_check.rc != 0
+  notify: Deploy WEB container
+
+- name: Trigger APP deployment when container does not exist
+  ansible.builtin.command: /bin/true
+  changed_when: true
+  when:
+    - application_role == "app"
+    - application_container_check.rc != 0
+  notify: Build FastAPI Docker image

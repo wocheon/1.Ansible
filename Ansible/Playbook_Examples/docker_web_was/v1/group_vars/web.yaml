@@ -1,0 +1,14 @@
+---
+application_role: "web"
+
+docker_image: "nginx:1.27"
+docker_container_name: "web-nginx"
+
+docker_ports:
+  - "80:80"
+
+docker_volumes:
+  - "/data/nginx/conf.d:/etc/nginx/conf.d:ro"
+
+app_backend_host: "{{ hostvars[groups['app'][0]].ansible_host }}"
+app_backend_port: 8000

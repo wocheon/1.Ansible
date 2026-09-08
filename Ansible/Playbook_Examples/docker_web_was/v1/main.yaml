@@ -1,0 +1,107 @@
+---
+- name: Install Docker Engine and deploy Nginx-FastAPI
+  hosts: docker_targets
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - var_list.yaml
+
+  pre_tasks:
+    - name: Validate supported OS family
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ["Debian", "RedHat"]
+        fail_msg: "Unsupported OS family: {{ ansible_os_family }}"
+        success_msg: "Supported OS family detected: {{ ansible_os_family }}"
+
+    - name: Validate Docker and containerd paths
+      ansible.builtin.assert:
+        that:
+          - docker_data_root is match('^/')
+          - containerd_root is match('^/')
+          - containerd_state is match('^/')
+        fail_msg: "Docker/containerd paths must be absolute paths."
+
+    - name: Validate application variables
+      ansible.builtin.assert:
+        that:
+          - application_role in ["web", "app"]
+          - docker_image | length > 0
+          - docker_container_name | length > 0
+        fail_msg: "Application variables are not configured correctly."
+
+  tasks:
+    - name: Include Debian-family Docker installation tasks
+      ansible.builtin.include_tasks: tasks/install_docker_debian.yaml
+      when: ansible_os_family == "Debian"
+
+    - name: Include RedHat-family Docker installation tasks
+      ansible.builtin.include_tasks: tasks/install_docker_redhat.yaml
+      when: ansible_os_family == "RedHat"
+
+    - name: Include Docker root configuration tasks
+      ansible.builtin.include_tasks: tasks/configure_docker_root.yaml
+
+    - name: Include containerd root configuration tasks
+      ansible.builtin.include_tasks: tasks/configure_containerd_root.yaml
+
+    - name: Apply Docker and containerd configuration changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure containerd service is running
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: true
+
+    - name: Ensure Docker service is running
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Include application configuration tasks
+      ansible.builtin.include_tasks: tasks/configure_application.yaml
+
+    - name: Apply application deployment handlers
+      ansible.builtin.meta: flush_handlers
+
+    - name: Include Docker verification tasks
+      ansible.builtin.include_tasks: tasks/verify_docker.yaml
+
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        enabled: true
+
+    - name: Restart Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+        enabled: true
+
+    - name: Build FastAPI Docker image
+      ansible.builtin.command:
+        cmd: "docker build -t {{ docker_image }} {{ app_build_dir }}"
+      when: application_role == "app"
+      notify: Run APP container
+
+    - name: Pull Nginx Docker image
+      ansible.builtin.command:
+        cmd: "docker pull {{ docker_image }}"
+      listen: Deploy WEB container
+      when: application_role == "web"
+
+    - name: Run APP container
+      ansible.builtin.command:
+        cmd: "/usr/local/bin/docker-run-{{ docker_container_name }}.sh"
+      when: application_role == "app"
+
+    - name: Run WEB container
+      ansible.builtin.command:
+        cmd: "/usr/local/bin/docker-run-{{ docker_container_name }}.sh"
+      listen: Deploy WEB container
+      when: application_role == "web"

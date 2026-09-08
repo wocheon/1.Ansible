@@ -1,0 +1,90 @@
+---
+- name: Check Docker information
+  ansible.builtin.command: docker info
+  register: docker_info_check
+  changed_when: false
+
+- name: Check containerd configuration
+  ansible.builtin.command:
+    cmd: grep -E '^(root|state)\s*=' /etc/containerd/config.toml
+  register: containerd_config_check
+  changed_when: false
+
+- name: Check Docker service status
+  ansible.builtin.command: systemctl is-active docker
+  register: docker_service_status
+  changed_when: false
+  failed_when: false
+
+- name: Check containerd service status
+  ansible.builtin.command: systemctl is-active containerd
+  register: containerd_service_status
+  changed_when: false
+  failed_when: false
+
+- name: Check application image
+  ansible.builtin.command:
+    cmd: "docker image inspect {{ docker_image }}"
+  register: docker_image_check
+  changed_when: false
+  failed_when: false
+
+- name: Check running application container
+  ansible.builtin.command:
+    cmd: "docker ps --filter name={{ docker_container_name }} --filter status=running -q"
+  register: application_container_running
+  changed_when: false
+
+- name: Verify FastAPI health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/health"
+    return_content: true
+    status_code: 200
+  register: app_response
+  when: application_role == "app"
+
+- name: Verify WEB to FastAPI connection
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    return_content: true
+    status_code: 200
+  register: web_response
+  when: application_role == "web"
+
+- name: Validate common Docker configuration
+  ansible.builtin.assert:
+    that:
+      - docker_service_status.stdout == "active"
+      - containerd_service_status.stdout == "active"
+      - docker_image_check.rc == 0
+      - application_container_running.stdout | length > 0
+      - "'Docker Root Dir: ' + docker_data_root in docker_info_check.stdout"
+      - "'root = \"' + containerd_root + '\"' in containerd_config_check.stdout"
+      - "'state = \"' + containerd_state + '\"' in containerd_config_check.stdout"
+    fail_msg: "Docker configuration verification failed."
+
+- name: Validate FastAPI response
+  ansible.builtin.assert:
+    that:
+      - app_response.json.status == "ok"
+    fail_msg: "FastAPI health check failed."
+    success_msg: "FastAPI application is running normally."
+  when: application_role == "app"
+
+- name: Validate Nginx-FastAPI connection
+  ansible.builtin.assert:
+    that:
+      - "'Nginx-FastAPI connection is working' in web_response.content"
+    fail_msg: "Nginx-FastAPI connection verification failed."
+    success_msg: "Nginx-FastAPI connection is working normally."
+  when: application_role == "web"
+
+- name: Show deployment result
+  ansible.builtin.debug:
+    msg:
+      - "Role: {{ application_role }}"
+      - "Docker image: {{ docker_image }}"
+      - "Container: {{ docker_container_name }}"
+      - "Docker Root Dir: {{ docker_data_root }}"
+      - "Docker service: {{ docker_service_status.stdout }}"
+      - "containerd service: {{ containerd_service_status.stdout }}"

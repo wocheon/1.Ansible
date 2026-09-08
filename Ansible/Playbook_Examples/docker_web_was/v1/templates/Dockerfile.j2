@@ -1,0 +1,13 @@
+FROM {{ fastapi_python_image }}
+
+WORKDIR /code
+
+COPY requirements.txt /code/requirements.txt
+
+RUN pip install --no-cache-dir -r /code/requirements.txt
+
+COPY app /code/app
+
+EXPOSE {{ fastapi_port }}
+
+CMD ["fastapi", "run", "app/main.py", "--port", "{{ fastapi_port }}", "--proxy-headers"]
